@@ -9,7 +9,7 @@ Definition nodevar := id.
 
 Inductive value : Type :=
   | Uninit_v : value
-  | Int_v : value
+  | Int_v : nat -> value
   | Region_v : nodevar -> value.
 
 Inductive tipe : Type :=
@@ -32,13 +32,13 @@ Inductive binop : Type :=
   | Gte : binop.
 
 Inductive exp : Type :=
-  | Var : exp
-  | Val : exp
+  | Var : id -> exp
+  | Val : value -> exp
   | Binop : exp -> binop -> exp -> exp
   | Load : exp -> exp
   | LoadFromU : var -> exp -> exp
   | Loadc : exp -> exp
-  | LoadcFromU : exp -> exp
+  | LoadcFromU : var -> exp -> exp
   | Cast : exp -> tipe -> exp
   | PoolAlloc : var -> exp -> exp
   | Addr : var -> exp -> exp -> exp
@@ -51,7 +51,7 @@ Inductive stmt : Type :=
   | Store : exp -> exp -> stmt
   | StoreToU : var -> exp -> exp -> stmt
   | Storec : exp -> exp -> stmt
-  | StorecToU : exp -> exp -> stmt
+  | StorecToU : var -> exp -> exp -> stmt
   | PoolFree : exp -> exp -> stmt
   | PoolInit : nodevar -> tipe -> var -> stmt -> stmt
   | PoolPop : stmt -> nodevar -> stmt.
