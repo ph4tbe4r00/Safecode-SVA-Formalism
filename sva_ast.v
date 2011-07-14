@@ -1,7 +1,11 @@
-Require String.
+(** * SVA-AST *)
 
-Definition var := String.string.
-Definition nodevar := String.string.
+(** Contains definitions for the "SVA" language. *)
+
+Require Export SfLib.
+
+Definition var := id.
+Definition nodevar := id.
 
 Inductive value : Type :=
   | Uninit_v : value
@@ -51,3 +55,7 @@ Inductive stmt : Type :=
   | PoolFree : exp -> exp -> stmt
   | PoolInit : nodevar -> tipe -> var -> stmt -> stmt
   | PoolPop : stmt -> nodevar -> stmt.
+
+Definition varmap := partial_map tipe.
+Definition regionmap := partial_map tipe.
+Definition context := prod varmap regionmap.
