@@ -17,7 +17,8 @@ Inductive tipe : Type :=
   | Char_t : tipe
   | Unknown_t : tipe
   | Pts_t : tipe -> nodevar -> tipe
-  | Handle_t : nodevar -> tipe -> tipe.
+  | Handle_t : nodevar -> tipe -> tipe
+  | Assoc_t : nodevar -> tipe -> tipe.
 
 Inductive binop : Type :=
   | Plus : binop
