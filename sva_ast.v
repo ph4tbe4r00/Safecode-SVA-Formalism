@@ -8,9 +8,9 @@ Definition var := id.
 Definition nodevar := id.
 
 Inductive value : Type :=
-  | Uninit_v : value
-  | Int_v : nat -> value
-  | Region_v : nodevar -> value.
+  | Uninit : value
+  | Int : nat -> value
+  | Region : nodevar -> value.
 
 Inductive tipe : Type :=
   | Int_t : tipe
@@ -33,17 +33,24 @@ Inductive binop : Type :=
   | Gte : binop.
 
 Inductive exp : Type :=
-  | Var : id -> exp
+  | Var : var -> exp
   | Val : value -> exp
   | Binop : exp -> binop -> exp -> exp
   | Load : exp -> exp
-  | LoadFromU : var -> exp -> exp
+  | LoadFromU : exp -> exp -> exp
   | Loadc : exp -> exp
-  | LoadcFromU : var -> exp -> exp
+  | LoadcFromU : exp -> exp -> exp
   | Cast : exp -> tipe -> exp
-  | PoolAlloc : var -> exp -> exp
-  | Addr : var -> exp -> exp -> exp
-  | CastI2Ptr : var -> exp -> tipe -> exp.
+  | PoolAlloc : exp -> exp -> exp
+  | Addr : exp -> exp -> exp -> exp
+  | CastI2Ptr : exp -> exp -> tipe -> exp.
+
+Inductive value_v : value -> Prop :=
+  | Uninit_v : value_v Uninit
+  | Int_v : forall n,
+      value_v (Int n)
+  | Region_v : forall rho,
+      value_v (Region rho).
 
 Inductive stmt : Type :=
   | Epsilon : stmt
@@ -56,4 +63,3 @@ Inductive stmt : Type :=
   | PoolFree : exp -> exp -> stmt
   | PoolInit : nodevar -> tipe -> var -> stmt -> stmt
   | PoolPop : stmt -> nodevar -> stmt.
-

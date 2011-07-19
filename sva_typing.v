@@ -15,7 +15,7 @@ Inductive has_type_exp : context -> exp -> tipe -> Prop :=
       Gamma x = Some tau ->
       has_type_exp (Gamma,Delta) (Var x) tau
   | SS1 : forall C n,
-      has_type_exp C (Val (Int_v n)) Int_t
+      has_type_exp C (Val (Int n)) Int_t
   | SS2 : forall C e1 e2 b,
       has_type_exp C e1 Int_t ->
       has_type_exp C e2 Int_t ->
@@ -23,7 +23,7 @@ Inductive has_type_exp : context -> exp -> tipe -> Prop :=
   | SS3 : forall C tau tau' rho',
       wf_context C tau ->
       tau = Int_t \/ tau = Char_t \/ tau = Unknown_t \/ tau = (Pts_t rho' tau') ->
-      has_type_exp C (Val Uninit_v) tau
+      has_type_exp C (Val Uninit) tau
   | SS4 : forall C e tau tau' rho rho',
       has_type_exp C e (Pts_t tau rho) ->
       tau = Int_t \/ tau = (Pts_t tau' rho') \/ tau = (Handle_t rho' tau') ->
@@ -36,21 +36,21 @@ Inductive has_type_exp : context -> exp -> tipe -> Prop :=
   | SS5 : forall C e2 x tau rho,
       has_type_exp C e2 (Pts_t tau rho) ->
       wf_context C (Assoc_t rho Unknown_t) ->
-      has_type_exp C (Var x) (Handle_t rho Unknown_t) ->
+      has_type_exp C x (Handle_t rho Unknown_t) ->
       has_type_exp C (LoadFromU x e2) Int_t
   | SS5char : forall C e2 x tau rho,
       has_type_exp C e2 (Pts_t tau rho) ->
       wf_context C (Assoc_t rho Unknown_t) ->
-      has_type_exp C (Var x) (Handle_t rho Unknown_t) ->
+      has_type_exp C x (Handle_t rho Unknown_t) ->
       has_type_exp C (LoadcFromU x e2) Char_t
   | SS6 : forall C e2 x tau rho,
       wf_context C (Assoc_t rho tau) ->
-      has_type_exp C (Var x) (Handle_t rho tau) ->
+      has_type_exp C x (Handle_t rho tau) ->
       has_type_exp C e2 Int_t ->
       has_type_exp C (PoolAlloc x e2) (Pts_t tau rho)
   | SS7 : forall C e x tau rho,
       wf_context C (Assoc_t rho tau) ->
-      has_type_exp C (Var x) (Handle_t rho tau) ->
+      has_type_exp C x (Handle_t rho tau) ->
       has_type_exp C e Int_t -> 
       has_type_exp C (CastI2Ptr x e (Pts_t tau rho)) (Pts_t tau rho)
   | SS8 : forall C e tau tau' rho,
@@ -59,7 +59,7 @@ Inductive has_type_exp : context -> exp -> tipe -> Prop :=
       has_type_exp C (Cast e (Pts_t tau' rho)) (Pts_t tau' rho)
   | SS9 : forall C e2 e3 x tau rho,
       wf_context C (Assoc_t rho tau) ->
-      has_type_exp C (Var x) (Handle_t rho tau) ->
+      has_type_exp C x (Handle_t rho tau) ->
       has_type_exp C e2 (Pts_t tau rho) ->
       has_type_exp C e3 Int_t ->
       has_type_exp C (Addr x e2 e3) (Pts_t tau rho)
@@ -95,13 +95,13 @@ with has_type_stmt : context -> stmt -> Prop :=
       wf_context C (Assoc_t rho Unknown_t) ->
       has_type_exp C e1 (Pts_t tau rho) ->
       has_type_exp C e2 tau ->
-      has_type_exp C (Var x) (Handle_t rho Unknown_t) ->
+      has_type_exp C x (Handle_t rho Unknown_t) ->
       has_type_stmt C (StoreToU x e2 e1)
   | SS15char : forall C e1 e2 x rho tau,
       wf_context C (Assoc_t rho Unknown_t) ->
       has_type_exp C e1 (Pts_t tau rho) ->
       has_type_exp C e2 Char_t ->
-      has_type_exp C (Var x) (Handle_t rho Unknown_t) ->
+      has_type_exp C x (Handle_t rho Unknown_t) ->
       has_type_stmt C (StorecToU x e2 e1)
   | SS16 : forall C e2 x rho tau,
       wf_context C (Assoc_t rho tau) ->
