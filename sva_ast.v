@@ -50,9 +50,9 @@ Inductive stmt : Type :=
   | Seq : stmt -> stmt -> stmt
   | Assign : var -> exp -> stmt
   | Store : exp -> exp -> stmt
-  | StoreToU : var -> exp -> exp -> stmt
+  | StoreToU : exp -> exp -> exp -> stmt
   | Storec : exp -> exp -> stmt
-  | StorecToU : var -> exp -> exp -> stmt
+  | StorecToU : exp -> exp -> exp -> stmt
   | PoolFree : exp -> exp -> stmt
   | PoolInit : nodevar -> tipe -> var -> stmt -> stmt
   | PoolPop : stmt -> nodevar -> stmt.
