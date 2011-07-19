@@ -57,6 +57,3 @@ Inductive stmt : Type :=
   | PoolInit : nodevar -> tipe -> var -> stmt -> stmt
   | PoolPop : stmt -> nodevar -> stmt.
 
-Definition varmap := partial_map tipe.
-Definition regionmap := partial_map tipe.
-Definition context := prod varmap regionmap.

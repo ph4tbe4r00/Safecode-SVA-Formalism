@@ -1,5 +1,9 @@
 Require Export sva_ast.
 
+Definition varmap := partial_map tipe.
+Definition regionmap := partial_map tipe.
+Definition context := prod varmap regionmap.
+
 (** TODO: lots of shit ...
     The plan is to first formalize the technical report, then add control flow, 
     then generalize to full C. *)
@@ -130,3 +134,4 @@ with wf_context : context -> tipe -> Prop :=
       wf_context C (Handle_t rho tau)
   | SS24 : forall C,
       wf_context C Char_t.
+
