@@ -54,6 +54,7 @@ Inductive value_v : value -> Prop :=
 
 Inductive stmt : Type :=
   | Epsilon : stmt
+  | Error : stmt (* Error state, program should never have this as a statment *)
   | Seq : stmt -> stmt -> stmt
   | Assign : var -> exp -> stmt
   | Store : exp -> exp -> stmt
