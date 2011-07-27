@@ -9,6 +9,7 @@ Tactic Notation "exp_cases" tactic(first) ident(c) :=
   | Case_aux c "SS7" | Case_aux c "SS8" | Case_aux c "SS9"
   | Case_aux c "SS10" ].
 
+(* Lemma 1: Well-formed type from technical report *)
 Lemma wf_type : forall (c : context) (e : exp) (tau : tipe),
   has_type_exp c e tau -> wf_context c tau.
 Proof.
