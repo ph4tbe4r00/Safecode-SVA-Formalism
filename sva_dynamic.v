@@ -3,6 +3,9 @@ Require Import sva_ast.
 Require Import List.
 Require Import Maps.
 Require Import Smallstep.
+Require Import Integers.
+Require Import Coqlib.
+Require Import ProofIrrelevance.
 
 (* We could have formalized ES as the paper does as exp + stmt, but sums
  * are inconvenient to work with and the expression state and statement
@@ -15,6 +18,27 @@ Require Import Smallstep.
  * Notes : 1) Lots of HACKS currently marked by comments. 
  *         2) Probably should create a designated Error state.
  *)
+
+Module Int32Indexed.
+Definition index (n : int) : positive :=
+  match (Int.unsigned n) with
+  | Z0 => xH
+  | Zpos p => xO p
+  | Zneg p => xI p
+  end.
+Lemma index_inj : forall (x y : int),
+  index x = index y ->
+  x = y.
+Proof.
+  unfold index. unfold Int.unsigned. intros x y H.
+  destruct x as [x1 Px]. destruct y as [y1 Py]. simpl in H. 
+  destruct x1; destruct y1; intros; 
+  try discriminate; try generalize (proof_irrelevance _ Px Py); 
+  try intros; try rewrite -> H0; try rewrite -> H; try reflexivity. inversion H.
+  subst p. generalize(proof_irrelevance _ Px Py). intros. rewrite -> H0. reflexivity.
+  inversion H. reflexivity.
+Qed.
+End Int32Indexed.
 
 Definition VarEnv := PTree.t value. (* var -> value *)
 Definition RegionStore := PTree.t value. (* int -> value *)
@@ -37,13 +61,52 @@ Record State_stmt : Type := state_s {
   ES_stmt : stmt (* statement *)
 }.
 
-(* hack identity function right now ... *)
-Definition update (l : LiveRegions) (v1 : value) (v2 : value) :=
-  l.
+(* getbyte(n,k) := (n << (8*(3-k))) >> 24 *)
+Definition getbyte (n : int) (k : int) : int :=
+  Int.shr (Int.shl n (Int.mul (Int.repr 8) (Int.sub (Int.repr 3) k))) (Int.repr 24).
+
+Definition domain {A : Type} (m: PTree.t A) :=
+  List.map (@fst PTree.elt A) (PTree.elements m).
+
+Definition domain_check (i : positive) (v : int) (x : RegionT) :=
+  match (PTree.get (Int32Indexed.index v) (RS x)) with
+  | None => None
+  | Some _ => Some i
+  end.
+
+Definition domain_check2 (i : positive) (v : int) (x : RegionT) :=
+  match (PTree.get (Int32Indexed.index v) (RS x)),
+        (PTree.get (Int32Indexed.index (Int.add v (Int.repr 1))) (RS x)),
+        (PTree.get (Int32Indexed.index (Int.add v (Int.repr 2))) (RS x)),
+        (PTree.get (Int32Indexed.index (Int.add v (Int.repr 3))) (RS x)) with
+  | Some _,Some _,Some _,Some _ => Some i
+  | _,_,_,_ => None
+  end.
+
+Definition updateh (l : LiveRegions) (v1 : int) (v2 : value) check :=
+  match PTree.fold 
+    (fun b i x =>
+      match b with
+      | None => check i v1 x
+      | Some _ => b
+      end
+    ) l None with
+  | None => l
+  | Some rho =>
+      match PTree.get rho l with
+      | None => l
+      | Some region => 
+          PTree.set rho (region_t (F region) 
+            (PTree.set (Int32Indexed.index v1) v2 (RS region))) l
+      end
+  end.
+
+Definition update (l : LiveRegions) (v1 : int) (v2 : value) :=
+  updateh l v1 v2 domain_check.
 
 (* hack identity function right now ... *)
-Definition update2 (l : LiveRegions) (v1 : value) (v2 : value) :=
-  l.
+Definition update2 (l : LiveRegions) (v1 : int) (v2 : value) :=
+  updateh l v1 v2 domain_check2.
 
 (* hack just returning uninit ... *)
 Definition getvalue (l : LiveRegions) (v : value) :=
@@ -93,7 +156,7 @@ Inductive stmt_step : State_stmt -> State_stmt -> Prop :=
       value_v v1 ->
       v1 = Uninit ->
       value_v v2 ->
-      state_s venv l (Store (Val v2) (Val v1)) ==>s state_s venv l Error
+      state_s venv l (Store (Val v2) (Val v1)) ==>s state_s venv l ErrorStmt
   | R6char : forall venv l v1 v2 n rho,
       value_v v1 ->
       v1 = (Int n) \/ v1 = (Region rho) ->
@@ -103,7 +166,7 @@ Inductive stmt_step : State_stmt -> State_stmt -> Prop :=
       value_v v1 ->
       v1 = Uninit ->
       value_v v2 ->
-      state_s venv l (Storec (Val v2) (Val v1)) ==>s state_s venv l Error
+      state_s venv l (Storec (Val v2) (Val v1)) ==>s state_s venv l ErrorStmt
   | R7 : forall venv l e1 e2 e3 venv' l' e1',
       state_e venv l e1 ==>e state_e venv' l' e1' ->
       state_s venv l (StoreToU e1 e2 e3) ==>s state_s venv' l' (StoreToU e1' e2 e3)
@@ -159,7 +222,7 @@ Inductive stmt_step : State_stmt -> State_stmt -> Prop :=
       value_v v ->
       v = Uninit ->
       PTree.get rho l = Some (region_t f rs) ->
-      state_s venv l (PoolFree (Val (Region rho)) (Val v)) ==>s state_s venv l Error
+      state_s venv l (PoolFree (Val (Region rho)) (Val v)) ==>s state_s venv l ErrorStmt
   | R15 : forall venv l rho tau x s,
       PTree.get rho l = None ->
       state_s venv l (PoolInit rho tau x s) ==>s 
