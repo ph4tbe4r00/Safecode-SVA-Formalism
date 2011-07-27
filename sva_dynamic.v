@@ -104,17 +104,43 @@ Definition updateh (l : LiveRegions) (v1 : int) (v2 : value) check :=
 Definition update (l : LiveRegions) (v1 : int) (v2 : value) :=
   updateh l v1 v2 domain_check.
 
-(* hack identity function right now ... *)
 Definition update2 (l : LiveRegions) (v1 : int) (v2 : value) :=
   updateh l v1 v2 domain_check2.
 
-(* hack just returning uninit ... *)
-Definition getvalue (l : LiveRegions) (v : value) :=
-  Val Uninit.
+Definition combine (b1 b2 b3 b4 : int) :=
+  Int.or (Int.shl b1 (Int.repr 24)) (
+  Int.or (Int.shl b2 (Int.repr 16)) (
+  Int.or (Int.shl b3 (Int.repr 8)) b4)).
 
 (* hack just returning uninit ... *)
-Definition getvalue2 (l : LiveRegions) (v : value) :=
-  Val Uninit.
+Definition getvalueh (l : LiveRegions) (v : int) check :=
+  match PTree.fold 
+    (fun b i x =>
+      match b with
+      | None => check i v x
+      | Some _ => b
+      end
+    ) l None with
+  | None => Some Uninit
+  | Some rho =>
+      match PTree.get rho l with
+      | None => Some Uninit
+      | Some region => PTree.get (Int32Indexed.index v) (RS region)
+      end
+  end.  
+
+Definition getvalue (l : LiveRegions) (v : int) :=
+  match (getvalueh l v domain_check) with
+  | None => Val Uninit
+  | Some v2 => Val v2
+  end.
+
+(* hack just returning uninit ... *)
+Definition getvalue2 (l : LiveRegions) (v : int) :=
+  match (getvalueh l v domain_check2) with
+  | None => Val Uninit
+  | Some v2 => Val v2
+  end.
 
 (* Small-step relations for dynamic checks *)
 Reserved Notation " e '==>e' e' " (at level 40).
@@ -151,7 +177,7 @@ Inductive stmt_step : State_stmt -> State_stmt -> Prop :=
       value_v v1 ->
       v1 = (Int n) \/ v1 = (Region rho) ->
       value_v v2 ->
-      state_s venv l (Store (Val v2) (Val v1)) ==>s state_s venv (update l v1 v2) Epsilon
+      state_s venv l (Store (Val v2) (Val v1)) ==>s state_s venv (update l n v2) Epsilon
   | R6error : forall venv l v1 v2,
       value_v v1 ->
       v1 = Uninit ->
@@ -161,7 +187,7 @@ Inductive stmt_step : State_stmt -> State_stmt -> Prop :=
       value_v v1 ->
       v1 = (Int n) \/ v1 = (Region rho) ->
       value_v v2 ->
-      state_s venv l (Storec (Val v2) (Val v1)) ==>s state_s venv (update l v1 v2) Epsilon
+      state_s venv l (Storec (Val v2) (Val v1)) ==>s state_s venv (update l n v2) Epsilon
   | R6charerror : forall venv l v1 v2,
       value_v v1 ->
       v1 = Uninit ->
@@ -193,18 +219,20 @@ Inductive stmt_step : State_stmt -> State_stmt -> Prop :=
       state_e venv l e3 ==>e state_e venv' l' e3' ->
       state_s venv l (StorecToU (Val v1) (Val v2) e3) ==>s 
       state_s venv' l' (StorecToU (Val v1) (Val v2) e3')
-  | R10 : forall venv l rho v1 v2,
+  | R10 : forall venv l n rho v1 v2,
       value_v v1 ->
       value_v v2 ->
+      v1 = Int n ->
       (* some crazy bs about intervals ... *)
       state_s venv l (StoreToU (Val (Region rho)) (Val v2) (Val v1)) ==>s
-      state_s venv (update2 l v1 v2) Epsilon
+      state_s venv (update2 l n v2) Epsilon
   (* also need to add an error transition for R10 *)
-  | R11 : forall venv l v1 v2 rho,
+  | R11 : forall venv l v1 v2 rho n,
       value_v v1 ->
       value_v v2 ->
+      v1 = Int n ->
       state_s venv l (StorecToU (Val (Region rho)) (Val v1) (Val v2)) ==>s 
-      state_s venv (update l v1 v2) Epsilon
+      state_s venv (update l n v2) Epsilon
   | R12 : forall venv l e1 e2 venv' l' e1',
       state_e venv l e1 ==>e state_e venv' l' e1' ->
       state_s venv l (PoolFree e1 e2) ==>s state_s venv' l' (PoolFree e1' e2)
@@ -264,7 +292,7 @@ with stmt_exp : State_exp -> State_exp -> Prop :=
   | R23 : forall venv l v n rho,
       value_v v ->
       v = (Int n) \/ v = (Region rho) ->
-      state_e venv l (Load (Val v)) ==>e state_e venv l (getvalue l v)
+      state_e venv l (Load (Val v)) ==>e state_e venv l (getvalue l n)
   (* also need to add error state for R23 *)
   | R24 : forall venv l e1 e2 venv' l' e1',
       state_e venv l e1 ==>e state_e venv' l' e1' ->
@@ -280,15 +308,17 @@ with stmt_exp : State_exp -> State_exp -> Prop :=
       value_v v ->
       state_e venv l e2 ==>e state_e venv' l' e2' ->
       state_e venv l (LoadcFromU (Val v) e2) ==>e state_e venv l (LoadcFromU (Val v) e2')
-  | R26 : forall venv l rho v,
+  | R26 : forall venv l rho v n,
       value_v v ->
+      v = Int n ->
       (* need some crazy interval check here *)
       state_e venv l (LoadFromU (Val (Region rho)) (Val v)) ==>e
-      state_e venv l (getvalue2 l v)
+      state_e venv l (getvalue2 l n)
   (* also need error state for R26 *)
-  | R27 : forall venv l v rho,
+  | R27 : forall venv l v rho n,
       value_v v ->
-      state_e venv l (LoadcFromU (Val (Region rho)) (Val v)) ==>e state_e venv l (getvalue l v)
+      v = Int n ->
+      state_e venv l (LoadcFromU (Val (Region rho)) (Val v)) ==>e state_e venv l (getvalue l n)
   | R28 : forall venv l e tau,
       state_e venv l (Cast e tau) ==>e state_e venv l e
   | R29 : forall venv l e1 e2 venv' l' e1' tau,
