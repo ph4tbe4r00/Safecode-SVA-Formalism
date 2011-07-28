@@ -15,6 +15,9 @@ Require Import ProofIrrelevance.
  * claims that it doesn't really affect anything. Hopefully this is the
  * case or we're screwed ... 
  *
+ * Removed char as primitive types and addr operations as they are not
+ * crucial to the formalism.
+ *
  * Notes : 1) Lots of HACKS currently marked by comments. 
  *         2) Probably should create a designated Error state.
  *)
@@ -40,15 +43,17 @@ Proof.
 Qed.
 End Int32Indexed.
 
+(* Environments for operational semantics *)
 Definition VarEnv := PTree.t value. (* var -> value *)
-Definition RegionStore := PTree.t value. (* int -> value *)
-Definition FreeList := list value. (* list of addresses, right now its a hack for R14/R15 *)
+Definition RegionStore := PTree.t value. (* int (addresses) -> value *)
+Definition FreeList := list int. (* list of free addresses*)
 Record RegionT : Type := region_t {
   F : FreeList;
   RS : RegionStore
 }.
 Definition LiveRegions := PTree.t RegionT. (* nodevar -> RegionT *)
 
+(* Abstract machine states *)
 Record State_exp : Type := state_e {
   VEnv_exp : VarEnv;
   L_exp : LiveRegions;
@@ -61,12 +66,11 @@ Record State_stmt : Type := state_s {
   ES_stmt : stmt (* statement *)
 }.
 
+(* Some function definitions *)
+
 (* getbyte(n,k) := (n << (8*(3-k))) >> 24 *)
 Definition getbyte (n : int) (k : int) : int :=
   Int.shr (Int.shl n (Int.mul (Int.repr 8) (Int.sub (Int.repr 3) k))) (Int.repr 24).
-
-Definition domain {A : Type} (m: PTree.t A) :=
-  List.map (@fst PTree.elt A) (PTree.elements m).
 
 Definition domain_check (i : positive) (v : int) (x : RegionT) :=
   match (PTree.get (Int32Indexed.index v) (RS x)) with
@@ -112,7 +116,6 @@ Definition combine (b1 b2 b3 b4 : int) :=
   Int.or (Int.shl b2 (Int.repr 16)) (
   Int.or (Int.shl b3 (Int.repr 8)) b4)).
 
-(* hack just returning uninit ... *)
 Definition getvalueh (l : LiveRegions) (v : int) check :=
   match PTree.fold 
     (fun b i x =>
@@ -135,7 +138,6 @@ Definition getvalue (l : LiveRegions) (v : int) :=
   | Some v2 => Val v2
   end.
 
-(* hack just returning uninit ... *)
 Definition getvalue2 (l : LiveRegions) (v : int) :=
   match (getvalueh l v domain_check2) with
   | None => Val Uninit
@@ -150,7 +152,7 @@ Inductive stmt_step : State_stmt -> State_stmt -> Prop :=
   | R1 : forall venv l s1 s2 venv' l' s1',
       state_s venv l s1 ==>s state_s venv' l' s1' ->
       state_s venv l (Seq s1 s2) ==>s state_s venv' l' (Seq s1' s2)
-  (* Added R1seq becuase I think paper is missing this rule ... *)
+  (* Added R1seq ... *)
   | R1seq : forall venv l s2,
       state_s venv l (Seq Epsilon s2) ==>s state_s venv l s2
   | R2 : forall venv l e x venv' l' e',
@@ -162,77 +164,97 @@ Inductive stmt_step : State_stmt -> State_stmt -> Prop :=
   | R4 : forall venv l e1 e2 venv' l' e1',
       state_e venv l e1 ==>e venv' l' e1' ->
       state_s venv l (Store e1 e2) ==>s state_s venv l' (Store e1' e2)
-  | R4char : forall venv l e1 e2 venv' l' e1',
+(*  | R4char : forall venv l e1 e2 venv' l' e1',
       state_e venv l e1 ==>e venv' l' e1' ->
-      state_s venv l (Storec e1 e2) ==>s state_s venv l' (Storec e1' e2)
+      state_s venv l (Storec e1 e2) ==>s state_s venv l' (Storec e1' e2)  *)
   | R5 : forall venv l e v venv' l' e',
       value_v v ->
       state_e venv l e ==>e state_e venv' l' e' ->
       state_s venv l (Store (Val v) e) ==>s state_s venv' l' (Store (Val v) e')
-  | R5char : forall venv l e v venv' l' e',
+(*  | R5char : forall venv l e v venv' l' e',
       value_v v ->
       state_e venv l e ==>e state_e venv' l' e' ->
-      state_s venv l (Storec (Val v) e) ==>s state_s venv' l' (Storec (Val v) e')
-  | R6 : forall venv l v1 v2 n rho,
+      state_s venv l (Storec (Val v) e) ==>s state_s venv' l' (Storec (Val v) e')  *)
+  (* R6 changed from v1 != Uninit to v1 = Int since memory address is 32-bit integer *)
+  | R6 : forall venv l v1 v2 n,
       value_v v1 ->
-      v1 = (Int n) \/ v1 = (Region rho) ->
+      v1 = (Int n) ->
       value_v v2 ->
       state_s venv l (Store (Val v2) (Val v1)) ==>s state_s venv (update l n v2) Epsilon
+(*  | R6char : forall venv l v1 v2 n rho,
+      value_v v1 ->
+      v1 = (Int n) ->
+      value_v v2 ->
+      state_s venv l (Store (Val v2) (Val v1)) ==>s state_s venv (update2 l n v2) Epsilon  *)
   | R6error : forall venv l v1 v2,
       value_v v1 ->
       v1 = Uninit ->
       value_v v2 ->
       state_s venv l (Store (Val v2) (Val v1)) ==>s state_s venv l ErrorStmt
-  | R6char : forall venv l v1 v2 n rho,
-      value_v v1 ->
-      v1 = (Int n) \/ v1 = (Region rho) ->
-      value_v v2 ->
-      state_s venv l (Storec (Val v2) (Val v1)) ==>s state_s venv (update l n v2) Epsilon
-  | R6charerror : forall venv l v1 v2,
+(*  | R6charerror : forall venv l v1 v2,
       value_v v1 ->
       v1 = Uninit ->
       value_v v2 ->
-      state_s venv l (Storec (Val v2) (Val v1)) ==>s state_s venv l ErrorStmt
+      state_s venv l (Storec (Val v2) (Val v1)) ==>s state_s venv l ErrorStmt  *)
   | R7 : forall venv l e1 e2 e3 venv' l' e1',
       state_e venv l e1 ==>e state_e venv' l' e1' ->
       state_s venv l (StoreToU e1 e2 e3) ==>s state_s venv' l' (StoreToU e1' e2 e3)
-  | R7char : forall venv l e1 e2 e3 venv' l' e1',
+(*  | R7char : forall venv l e1 e2 e3 venv' l' e1',
       state_e venv l e1 ==>e state_e venv' l' e1' ->
-      state_s venv l (StorecToU e1 e2 e3) ==>s state_s venv' l' (StorecToU e1' e2 e3)
+      state_s venv l (StorecToU e1 e2 e3) ==>s state_s venv' l' (StorecToU e1' e2 e3)  *)
   | R8 : forall venv l v1 e2 e3 venv' l' e2',
       value_v v1 ->
       state_e venv l e2 ==>e state_e venv' l' e2' ->
       state_s venv l (StoreToU (Val v1) e2 e3) ==>s state_s venv' l' (StoreToU (Val v1) e2' e3)
-  | R8char : forall venv l v1 e2 e3 venv' l' e2',
+(*  | R8char : forall venv l v1 e2 e3 venv' l' e2',
       value_v v1 ->
       state_e venv l e2 ==>e state_e venv' l' e2' ->
-      state_s venv l (StorecToU (Val v1) e2 e3) ==>s state_s venv' l' (StorecToU (Val v1) e2' e3)
+      state_s venv l (StorecToU (Val v1) e2 e3) ==>s state_s venv' l' (StorecToU (Val v1) e2' e3)  *)
   | R9 : forall venv l v1 v2 e3 venv' l' e3',
       value_v v1 ->
       value_v v2 ->
       state_e venv l e3 ==>e state_e venv' l' e3' ->
       state_s venv l (StoreToU (Val v1) (Val v2) e3) ==>s 
       state_s venv' l' (StoreToU (Val v1) (Val v2) e3')
-  | R9char : forall venv l v1 v2 e3 venv' l' e3',
+(*  | R9char : forall venv l v1 v2 e3 venv' l' e3',
       value_v v1 ->
       value_v v2 ->
       state_e venv l e3 ==>e state_e venv' l' e3' ->
       state_s venv l (StorecToU (Val v1) (Val v2) e3) ==>s 
-      state_s venv' l' (StorecToU (Val v1) (Val v2) e3')
-  | R10 : forall venv l n rho v1 v2,
+      state_s venv' l' (StorecToU (Val v1) (Val v2) e3')  *)
+  | R10 : forall venv l n rho v1 v2 region foo1 foo2 foo3,
       value_v v1 ->
       value_v v2 ->
       v1 = Int n ->
-      (* some crazy bs about intervals ... *)
+      ( PTree.get rho l = Some region /\
+        PTree.get (Int32Indexed.index (Int.add n Int.one)) (RS region) = Some foo1 /\
+        PTree.get (Int32Indexed.index (Int.add n (Int.repr 2))) (RS region) = Some foo2 /\
+        PTree.get (Int32Indexed.index (Int.add n (Int.repr 3))) (RS region) = Some foo3 ) ->
       state_s venv l (StoreToU (Val (Region rho)) (Val v2) (Val v1)) ==>s
       state_s venv (update2 l n v2) Epsilon
-  (* also need to add an error transition for R10 *)
-  | R11 : forall venv l v1 v2 rho n,
+  | R10error : forall venv l n rho v1 v2,
+      value_v v1 ->
+      value_v v2 ->
+      v1 = Int n ->
+      PTree.get rho l = None ->
+      state_s venv l (StoreToU (Val (Region rho)) (Val v2) (Val v1)) ==>s
+      state_s venv (update2 l n v2) ErrorStmt
+  | R10error2 : forall venv l n rho v1 v2 region,
+      value_v v1 ->
+      value_v v2 ->
+      v1 = Int n ->
+      PTree.get rho l = Some region ->
+      PTree.get (Int32Indexed.index (Int.add n Int.one)) (RS region) = None \/
+      PTree.get (Int32Indexed.index (Int.add n (Int.repr 2))) (RS region) = None \/
+      PTree.get (Int32Indexed.index (Int.add n (Int.repr 3))) (RS region) = None ->
+      state_s venv l (StoreToU (Val (Region rho)) (Val v2) (Val v1)) ==>s
+      state_s venv (update2 l n v2) ErrorStmt
+(*  | R11 : forall venv l v1 v2 rho n,
       value_v v1 ->
       value_v v2 ->
       v1 = Int n ->
       state_s venv l (StorecToU (Val (Region rho)) (Val v1) (Val v2)) ==>s 
-      state_s venv (update l n v2) Epsilon
+      state_s venv (update l n v2) Epsilon  *)
   | R12 : forall venv l e1 e2 venv' l' e1',
       state_e venv l e1 ==>e state_e venv' l' e1' ->
       state_s venv l (PoolFree e1 e2) ==>s state_s venv' l' (PoolFree e1' e2)
@@ -240,15 +262,16 @@ Inductive stmt_step : State_stmt -> State_stmt -> Prop :=
       value_v v ->
       state_e venv l e2 ==>e state_e venv' l' e2' ->
       state_s venv l (PoolFree (Val v) e2) ==>s state_s venv' l' (PoolFree (Val v) e2')
+(* R14 changed to v = int since it should be an address *)
   | R14 : forall venv l v n rho f rs,
       value_v v ->
-      v = (Int n) \/ v = (Region rho) ->
+      v = Int n ->
       PTree.get rho l = Some (region_t f rs) ->
       state_s venv l (PoolFree (Val (Region rho)) (Val v)) ==>s 
-      state_s venv (PTree.set rho (region_t (v::f) rs) l) Epsilon
-  | R14error : forall venv l v rho f rs,
+      state_s venv (PTree.set rho (region_t (n::f) rs) l) Epsilon
+  | R14error : forall venv l v rho rho' f rs,
       value_v v ->
-      v = Uninit ->
+      v = Uninit \/ v = (Region rho') ->
       PTree.get rho l = Some (region_t f rs) ->
       state_s venv l (PoolFree (Val (Region rho)) (Val v)) ==>s state_s venv l ErrorStmt
   | R15 : forall venv l rho tau x s,
@@ -263,7 +286,8 @@ Inductive stmt_step : State_stmt -> State_stmt -> Prop :=
   | R17 : forall venv l x rho r,
       state_s (PTree.set x (Region rho) venv) (PTree.set rho r l) (PoolPop Epsilon rho) ==>s
       state_s venv l Epsilon
-      (* some bs about the heap needs to be taken care of? *)
+      (* System heap gets updated by H = H union Dom(R.RS), but we're not 
+         modeling the heap right now *)
 where " s '==>s' s' " := (stmt_step s s')
 
 with stmt_exp : State_exp -> State_exp -> Prop :=
@@ -277,48 +301,70 @@ with stmt_exp : State_exp -> State_exp -> Prop :=
       value_v v ->
       state_e venv l e2 ==>e state_e venv' l' e2' ->
       state_e venv l (Binop (Val v) op e2) ==>e state_e venv' l' (Binop (Val v) op e2')
-  | R21 : forall venv l v1 v2 op,
+  | R21 : forall venv l v1 v2 op n1 n2,
       value_v v1 ->
+      v1 = Int n1 ->
       value_v v2 ->
-      (* warning ... right now this is a hack, but we don't need to do a
-       * computation? *)
+      v2 = Int n2 ->
+      (* warning ... this is a hack, but we don't need to do a computation *)
       state_e venv l (Binop (Val v1) op (Val v2)) ==>e state_e venv l (Val v1)
   | R22 : forall venv l e venv' l' e',
       state_e venv l e ==>e state_e venv' l' e' ->
       state_e venv l (Load e) ==>e state_e venv' l' (Load e')
-  | R22char : forall venv l e venv' l' e',
+(*  | R22char : forall venv l e venv' l' e',
       state_e venv l e ==>e state_e venv' l' e' ->
-      state_e venv l (Loadc e) ==>e state_e venv' l' (Loadc e')
-  | R23 : forall venv l v n rho,
+      state_e venv l (Loadc e) ==>e state_e venv' l' (Loadc e')  *)
+(* changed R23 from v != unint to v = int *)
+  | R23 : forall venv l v n,
       value_v v ->
-      v = (Int n) \/ v = (Region rho) ->
+      v = Int n ->
       state_e venv l (Load (Val v)) ==>e state_e venv l (getvalue l n)
-  (* also need to add error state for R23 *)
+  | R23error : forall venv l v rho ,
+      value_v v ->
+      v = (Region rho) \/ v = Uninit ->
+      state_e venv l (Load (Val v)) ==>e state_e venv l ErrorExp
+  (* also need R23char when we add chars back in *)
   | R24 : forall venv l e1 e2 venv' l' e1',
       state_e venv l e1 ==>e state_e venv' l' e1' ->
       state_e venv l (LoadFromU e1 e2) ==>e state_e venv l (LoadFromU e1' e2)
-  | R24char : forall venv l e1 e2 venv' l' e1',
+(*  | R24char : forall venv l e1 e2 venv' l' e1',
       state_e venv l e1 ==>e state_e venv' l' e1' ->
-      state_e venv l (LoadcFromU e1 e2) ==>e state_e venv l (LoadcFromU e1' e2)
+      state_e venv l (LoadcFromU e1 e2) ==>e state_e venv l (LoadcFromU e1' e2)  *)
   | R25 : forall venv l v e2 venv' l' e2',
       value_v v ->
       state_e venv l e2 ==>e state_e venv' l' e2' ->
       state_e venv l (LoadFromU (Val v) e2) ==>e state_e venv l (LoadFromU (Val v) e2')
-  | R25char : forall venv l v e2 venv' l' e2',
+(*  | R25char : forall venv l v e2 venv' l' e2',
       value_v v ->
       state_e venv l e2 ==>e state_e venv' l' e2' ->
-      state_e venv l (LoadcFromU (Val v) e2) ==>e state_e venv l (LoadcFromU (Val v) e2')
-  | R26 : forall venv l rho v n,
+      state_e venv l (LoadcFromU (Val v) e2) ==>e state_e venv l (LoadcFromU (Val v) e2')  *)
+  | R26 : forall venv l rho v n region foo1 foo2 foo3,
       value_v v ->
       v = Int n ->
-      (* need some crazy interval check here *)
+      PTree.get rho l = Some region ->
+      PTree.get (Int32Indexed.index (Int.add n Int.one)) (RS region) = Some foo1 ->
+      PTree.get (Int32Indexed.index (Int.add n (Int.repr 2))) (RS region) = Some foo2 ->
+      PTree.get (Int32Indexed.index (Int.add n (Int.repr 3))) (RS region) = Some foo3 ->
       state_e venv l (LoadFromU (Val (Region rho)) (Val v)) ==>e
       state_e venv l (getvalue2 l n)
-  (* also need error state for R26 *)
-  | R27 : forall venv l v rho n,
+  | R26error : forall venv l rho v,
+      value_v v ->
+      PTree.get rho l = None ->
+      state_e venv l (LoadFromU (Val (Region rho)) (Val v)) ==>e
+      state_e venv l ErrorExp
+  | R26error2 : forall venv l n rho v region,
       value_v v ->
       v = Int n ->
-      state_e venv l (LoadcFromU (Val (Region rho)) (Val v)) ==>e state_e venv l (getvalue l n)
+      PTree.get rho l = Some region ->
+      PTree.get (Int32Indexed.index (Int.add n Int.one)) (RS region) = None \/
+      PTree.get (Int32Indexed.index (Int.add n (Int.repr 2))) (RS region) = None \/
+      PTree.get (Int32Indexed.index (Int.add n (Int.repr 3))) (RS region) = None ->
+      state_e venv l (LoadFromU (Val (Region rho)) (Val v)) ==>e
+      state_e venv l ErrorExp
+(*  | R27 : forall venv l v rho n,
+      value_v v ->
+      v = Int n ->
+      state_e venv l (LoadcFromU (Val (Region rho)) (Val v)) ==>e state_e venv l (getvalue l n)  *)
   | R28 : forall venv l e tau,
       state_e venv l (Cast e tau) ==>e state_e venv l e
   | R29 : forall venv l e1 e2 venv' l' e1' tau,
@@ -328,11 +374,22 @@ with stmt_exp : State_exp -> State_exp -> Prop :=
       value_v v ->
       state_e venv l e ==>e state_e venv' l' e' ->
       state_e venv l (CastI2Ptr (Val v) e tau) ==>e state_e venv' l' (CastI2Ptr (Val v) e' tau)
-  | R31 : forall venv l rho v v' tau,
+  | R31 : forall venv l rho v n region tau foo,
       value_v v ->
-      PTree.get rho l = Some v' ->
+      v = Int n ->
+      PTree.get rho l = Some region ->
+      PTree.get (Int32Indexed.index n) (RS region) = Some foo ->
       state_e venv l (CastI2Ptr (Val (Region rho)) (Val v) tau) ==>e state_e venv l (Val v)
-  (* also need error state for R31 *)
+  | R31error : forall venv l rho v tau,
+      value_v v ->
+      PTree.get rho l = None ->
+      state_e venv l (CastI2Ptr (Val (Region rho)) (Val v) tau) ==>e state_e venv l ErrorExp
+  | R31error2 : forall venv l rho v n region tau,
+      value_v v ->
+      v = Int n ->
+      PTree.get rho l = Some region ->
+      PTree.get (Int32Indexed.index n) (RS region) = None ->
+      state_e venv l (CastI2Ptr (Val (Region rho)) (Val v) tau) ==>e state_e venv l ErrorExp
   | R32 : forall venv l e1 e2 venv' l' e1',
       state_e venv l e1 ==>e state_e venv l' e1' ->
       state_e venv l (PoolAlloc e1 e2) ==>e state_e venv' l' (PoolAlloc e1' e2)
@@ -340,28 +397,36 @@ with stmt_exp : State_exp -> State_exp -> Prop :=
       value_v v ->
       state_e venv l e2 ==>e state_e venv l' e2' ->
       state_e venv l (PoolAlloc (Val v) e2) ==>e state_e venv' l' (PoolAlloc (Val v) e2')
-  (*
-  | R34 : forall venv l rho f rs a,
-      state_e venv (PTree.set rho (region_t (a::f) rs) l) (PoolAlloc (Val (Region rho)) (Val (Int 1))) ==>e
-      state_e venv (PTree.set rho (region_t f rs) l) (Val a)
-  *)
-  (* R34, R35 and R36 are ... *)
-  | R37 : forall venv l e1 e2 e3 venv' l' e1',
+  | R34 : forall venv l rho f a region,
+      PTree.get rho l = Some region ->
+      F region = a::f ->
+      state_e venv l (PoolAlloc (Val (Region rho)) (Val (Int Int.one))) ==>e
+      state_e venv (PTree.set rho (region_t f (RS region)) l) (Val (Int a))
+  | R35 : forall venv l rho a region,
+      PTree.get rho l = Some region ->
+      F region = nil ->
+      state_e venv l (PoolAlloc (Val (Region rho)) (Val (Int Int.one))) ==>e
+      state_e venv (PTree.set rho (region_t nil (PTree.set (Int32Indexed.index a) Uninit (RS region))) l) (Val (Int a))
+      (* a is a new address obtained from system allocator, H -> H - {a} *)
+  (* not supporting R36 right now ... limited to allocating 1 byte at a time now *)
+(*  | R37 : forall venv l e1 e2 e3 venv' l' e1',
       state_e venv l e1 ==>e state_e venv' l' e1' ->
-      state_e venv l (Addr e1 e2 e3) ==>e state_e venv' l' (Addr e1' e2 e3)
-  | R38 : forall venv l v1 e2 e3 venv' l' e2',
+      state_e venv l (Addr e1 e2 e3) ==>e state_e venv' l' (Addr e1' e2 e3)  *)
+(*  | R38 : forall venv l v1 e2 e3 venv' l' e2',
       value_v v1 ->
       state_e venv l e2 ==>e state_e venv' l' e2' ->
-      state_e venv l (Addr (Val v1) e2 e3) ==>e state_e venv' l' (Addr (Val v1) e2' e3)
-  | R39 : forall venv l v1 v2 e3 venv' l' e3',
+      state_e venv l (Addr (Val v1) e2 e3) ==>e state_e venv' l' (Addr (Val v1) e2' e3)  *)
+(*  | R39 : forall venv l v1 v2 e3 venv' l' e3',
       value_v v1 ->
       value_v v2 ->
       state_e venv l e3 ==>e state_e venv' l' e3' ->
-      state_e venv l (Addr (Val v1) (Val v2) e3) ==>e state_e venv' l' (Addr (Val v1) (Val v2) e3')
-  (* warning hack right now ... need to make it an offset calculation *)
-  | R40 : forall venv l v1 v2 rho,
+      state_e venv l (Addr (Val v1) (Val v2) e3) ==>e state_e venv' l' (Addr (Val v1) (Val v2) e3')  *)
+(*  | R40 : forall venv l v1 v2 n1 n2 rho,
       value_v v1 ->
       value_v v2 ->
-      state_e venv l (Addr (Val (Region rho)) (Val v1) (Val v2)) ==>e state_e venv l (Val v1)
+      v1 = Int n1 ->
+      v2 = Int n2 -> 
+      state_e venv l (Addr (Val (Region rho)) (Val v1) (Val v2)) ==>e 
+      state_e venv l (Val (Int (Int.add n1 (Int.mul n2 (Int.repr 4)))))  *)
 where " e '==>e' e' " := (stmt_exp e e').
 

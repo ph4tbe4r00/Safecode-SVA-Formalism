@@ -1,21 +1,41 @@
 (** * SVA-AST *)
 
-(** Contains definitions for the "SVA" language. *)
+(* Contains definitions for the "SVA" language. 
+ * 
+ * Notes: Taken straight from SafeCode paper. We removed characters as a
+ * primitive type because it doesn't say anything interesting about what
+ * pool allocation does. Furthermore, this would require char to be a value,
+ * which currently does not appear in the paper (possible error). *)
 
 Add LoadPath "./CompCert-Toolkit".
 Require Import Coqlib.
+Require Import Integers.
 
 Definition var := positive.
 Definition nodevar := positive.
 
 Inductive value : Type :=
   | Uninit : value
-  | Int : nat -> value
+  | Int : int -> value
   | Region : nodevar -> value.
+
+Inductive value_v : value -> Prop :=
+  | Uninit_v : value_v Uninit
+  | Int_v : forall n,
+      value_v (Int n)
+  | Region_v : forall rho,
+      value_v (Region rho).
+
+Definition isValRegion (v : value) : bool :=
+  match v with
+  | Uninit => false
+  | Int _ => false
+  | Region rho => true
+  end.
 
 Inductive tipe : Type :=
   | Int_t : tipe
-  | Char_t : tipe
+(*  | Char_t : tipe  *)
   | Unknown_t : tipe
   | Pts_t : tipe -> nodevar -> tipe
   | Handle_t : nodevar -> tipe -> tipe.
@@ -38,29 +58,23 @@ Inductive exp : Type :=
   | Binop : exp -> binop -> exp -> exp
   | Load : exp -> exp
   | LoadFromU : exp -> exp -> exp
-  | Loadc : exp -> exp
-  | LoadcFromU : exp -> exp -> exp
+(*  | Loadc : exp -> exp  *)
+(*  | LoadcFromU : exp -> exp -> exp  *)
   | Cast : exp -> tipe -> exp
-  | PoolAlloc : exp -> exp -> exp
-  | Addr : exp -> exp -> exp -> exp
-  | CastI2Ptr : exp -> exp -> tipe -> exp.
-
-Inductive value_v : value -> Prop :=
-  | Uninit_v : value_v Uninit
-  | Int_v : forall n,
-      value_v (Int n)
-  | Region_v : forall rho,
-      value_v (Region rho).
+  | PoolAlloc : exp -> exp -> exp 
+(*  | Addr : exp -> exp -> exp -> exp  *)
+  | CastI2Ptr : exp -> exp -> tipe -> exp
+  | ErrorExp : exp. (* Error state, program should never have this as an expression *)
 
 Inductive stmt : Type :=
   | Epsilon : stmt
-  | Error : stmt (* Error state, program should never have this as a statment *)
   | Seq : stmt -> stmt -> stmt
   | Assign : var -> exp -> stmt
   | Store : exp -> exp -> stmt
   | StoreToU : exp -> exp -> exp -> stmt
-  | Storec : exp -> exp -> stmt
-  | StorecToU : exp -> exp -> exp -> stmt
+(*  | Storec : exp -> exp -> stmt  *)
+(*  | StorecToU : exp -> exp -> exp -> stmt  *)
   | PoolFree : exp -> exp -> stmt
   | PoolInit : nodevar -> tipe -> var -> stmt -> stmt
-  | PoolPop : stmt -> nodevar -> stmt.
+  | PoolPop : stmt -> nodevar -> stmt
+  | ErrorStmt : stmt. (* Error state, program should never have this as a statment *)
