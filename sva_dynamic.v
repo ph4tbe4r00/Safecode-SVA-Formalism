@@ -151,12 +151,13 @@ Fixpoint initialize_h (rs : RegionStore) (a : int) (m : positive) :=
   | xO m' => initialize_h (PTree.set (Int32Indexed.index a) Uninit rs) (Int.add a Int.one) m'
   end.
 
-Definition initialize (l : LiveRegions) (rho : nodevar) (a : int) (m : int) :=
+Definition initialize (l : LiveRegions) (rho : nodevar) 
+  (a : int) (m : int) (allocator : Allocator) :=
   match PTree.get rho l with
   | None => l
   | Some region => (
       match (Int.unsigned m) with
-      | Zpos m' => PTree.set rho (region_t (A region) (initialize_h (RS region) a m')) l
+      | Zpos m' => PTree.set rho (region_t allocator (initialize_h (RS region) a m')) l
       | ZO => l
       end )
   end.
@@ -266,11 +267,9 @@ Inductive stmt_step : State_stmt -> State_stmt -> Prop :=
   | R16 : forall venv l s venv' l' s' rho,
       state_s venv l s ==>s state_s venv' l' s' ->
       state_s venv l (PoolPop s rho) ==>s state_s venv' l' (PoolPop s' rho)
-  | R17 : forall venv l x rho r,
-      state_s (PTree.set x (Region rho) venv) (PTree.set rho r l) (PoolPop Epsilon rho) ==>s
-      state_s venv l Epsilon
-      (* System heap gets updated by H = H union Dom(R.RS), but we're not 
-         modeling the heap right now *)
+  | R17 : forall venv l rho,
+      state_s venv l (PoolPop Epsilon rho) ==>s
+      state_s venv (PTree.remove rho l) Epsilon
 where " s '==>s' s' " := (stmt_step s s')
 
 with stmt_exp : State_exp -> State_exp -> Prop :=
@@ -294,9 +293,6 @@ with stmt_exp : State_exp -> State_exp -> Prop :=
   | R22 : forall venv l e venv' l' e',
       state_e venv l e ==>e state_e venv' l' e' ->
       state_e venv l (Load e) ==>e state_e venv' l' (Load e')
-(*  | R22char : forall venv l e venv' l' e',
-      state_e venv l e ==>e state_e venv' l' e' ->
-      state_e venv l (Loadc e) ==>e state_e venv' l' (Loadc e')  *)
 (* changed R23 from v != unint to v = int *)
   | R23 : forall venv l v n,
       value_v v ->
@@ -306,21 +302,13 @@ with stmt_exp : State_exp -> State_exp -> Prop :=
       value_v v ->
       v = (Region rho) \/ v = Uninit ->
       state_e venv l (Load (Val v)) ==>e state_e venv l ErrorExp
-  (* also need R23char when we add chars back in *)
   | R24 : forall venv l e1 e2 venv' l' e1',
       state_e venv l e1 ==>e state_e venv' l' e1' ->
       state_e venv l (LoadFromU e1 e2) ==>e state_e venv l (LoadFromU e1' e2)
-(*  | R24char : forall venv l e1 e2 venv' l' e1',
-      state_e venv l e1 ==>e state_e venv' l' e1' ->
-      state_e venv l (LoadcFromU e1 e2) ==>e state_e venv l (LoadcFromU e1' e2)  *)
   | R25 : forall venv l v e2 venv' l' e2',
       value_v v ->
       state_e venv l e2 ==>e state_e venv' l' e2' ->
       state_e venv l (LoadFromU (Val v) e2) ==>e state_e venv l (LoadFromU (Val v) e2')
-(*  | R25char : forall venv l v e2 venv' l' e2',
-      value_v v ->
-      state_e venv l e2 ==>e state_e venv' l' e2' ->
-      state_e venv l (LoadcFromU (Val v) e2) ==>e state_e venv l (LoadcFromU (Val v) e2')  *)
   | R26 : forall venv l rho v n region foo1 foo2 foo3,
       value_v v ->
       v = Int n ->
@@ -344,10 +332,6 @@ with stmt_exp : State_exp -> State_exp -> Prop :=
       PTree.get (Int32Indexed.index (Int.add n (Int.repr 3))) (RS region) = None ->
       state_e venv l (LoadFromU (Val (Region rho)) (Val v)) ==>e
       state_e venv l ErrorExp
-(*  | R27 : forall venv l v rho n,
-      value_v v ->
-      v = Int n ->
-      state_e venv l (LoadcFromU (Val (Region rho)) (Val v)) ==>e state_e venv l (getvalue l n)  *)
   | R28 : forall venv l e tau,
       state_e venv l (Cast e tau) ==>e state_e venv l e
   | R29 : forall venv l e1 e2 venv' l' e1' tau,
@@ -380,17 +364,14 @@ with stmt_exp : State_exp -> State_exp -> Prop :=
       value_v v ->
       state_e venv l e2 ==>e state_e venv l' e2' ->
       state_e venv l (PoolAlloc (Val v) e2) ==>e state_e venv' l' (PoolAlloc (Val v) e2')
-  | R34 : forall venv l rho a region allocator,
+  (* R35 and R36 taken care of with new R34 *)
+  | R34 : forall venv l rho a region allocator v n,
+      value_v v ->
+      v = Int n ->
       PTree.get rho l = Some region ->
-      Some (a,allocator) = alloc_1 (A region) ->
-      state_e venv l (PoolAlloc (Val (Region rho)) (Val (Int Int.one))) ==>e
-      state_e venv (initialize l rho a Int.one) (Val (Int a))
-  | R35 : forall venv l rho a region ,
-      PTree.get rho l = Some region ->
-      F region = nil ->
-      state_e venv l (PoolAlloc (Val (Region rho)) (Val (Int Int.one))) ==>e
-      state_e venv (PTree.set rho (region_t nil (PTree.set (Int32Indexed.index a) Uninit (RS region))) l) (Val (Int a))
-      (* a is a new address obtained from system allocator, H -> H - {a} *)
-  (* not supporting R36 right now ... limited to allocating 1 byte at a time now *)
+      Some (a,allocator) = alloc (A region) (Int.unsigned n) ->
+      state_e venv l (PoolAlloc (Val (Region rho)) (Val v)) ==>e
+      state_e venv (initialize l rho a n allocator) (Val (Int a))
+  (* Taking out addr for now ... *)
 where " e '==>e' e' " := (stmt_exp e e').
 
