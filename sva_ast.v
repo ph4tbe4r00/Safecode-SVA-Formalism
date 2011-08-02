@@ -4,8 +4,7 @@
  * 
  * Notes: Taken straight from SafeCode paper. We removed characters as a
  * primitive type because it doesn't say anything interesting about what
- * pool allocation does. Furthermore, this would require char to be a value,
- * which currently does not appear in the paper (possible error). *)
+ * pool allocation does. *)
 
 Add LoadPath "./CompCert-Toolkit".
 Require Import Coqlib.
@@ -15,23 +14,19 @@ Definition var := positive.
 Definition nodevar := positive.
 
 Inductive value : Type :=
-  | Uninit : value
-  | Int : int -> value
-  | Region : nodevar -> value.
+  | Uninit : value              (* unitialized *)
+  | Int : int -> value          (* 32-bit machine integer *)
+  | Byte : byte -> value        (* 8-bit machine integer *)
+  | Region : nodevar -> value.  (* paper isn't clear about wtf this is ... *)
 
 Inductive value_v : value -> Prop :=
   | Uninit_v : value_v Uninit
   | Int_v : forall n,
       value_v (Int n)
+  | Byte_v : forall n,
+      value_v (Byte n)
   | Region_v : forall rho,
       value_v (Region rho).
-
-Definition isValRegion (v : value) : bool :=
-  match v with
-  | Uninit => false
-  | Int _ => false
-  | Region rho => true
-  end.
 
 Inductive tipe : Type :=
   | Int_t : tipe

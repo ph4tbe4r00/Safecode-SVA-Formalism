@@ -4,6 +4,8 @@ Require Import Maps.
 Require Import Smallstep.
 Require Import Integers.
 Require Import Coqlib.
+Require Import Globalenvs.
+Require Import Events.
 
 (* Sva imports *)
 Require Import sva_ast.
@@ -23,7 +25,9 @@ Require Import ProofIrrelevance.
  *         2) Probably should create a designated Error state.
  *)
 
+(* Modeling the RegionStore *)
 Module Int32Indexed.
+Definition t := int.
 Definition index (n : int) : positive :=
   match (Int.unsigned n) with
   | Z0 => xH
@@ -42,16 +46,19 @@ Proof.
   subst p. generalize(proof_irrelevance _ Px Py). intros. rewrite -> H0. reflexivity.
   inversion H. reflexivity.
 Qed.
+Definition eq := Int.eq_dec.
 End Int32Indexed.
+
+Module I32Map := IMap(Int32Indexed).
 
 (* Environments for operational semantics *)
 Definition VarEnv := PTree.t value. (* var -> value *)
-Definition RegionStore := PTree.t value. (* Z (addresses) -> value *)
-Record RegionT : Type := region_t {
+Definition RegionStore := I32Map.t (option value). (* int (addresses) -> option value *)
+Record RegionInfo : Type := mk_region {
   A : Allocator;
   RS : RegionStore
 }.
-Definition LiveRegions := PTree.t RegionT. (* nodevar -> RegionT *)
+Definition LiveRegions := PTree.t RegionInfo. (* nodevar -> RegionInfo *)
 
 (* Abstract machine states *)
 Record State_exp : Type := state_e {
@@ -68,48 +75,72 @@ Record State_stmt : Type := state_s {
 
 (* Some function definitions *)
 
-(* getbyte(n,k) := (n << (8*(3-k))) >> 24 *)
-Definition getbyte (n : int) (k : int) : int :=
-  Int.shr (Int.shl n (Int.mul (Int.repr 8) (Int.sub (Int.repr 3) k))) (Int.repr 24).
+Definition byte1 (n : int) : byte :=
+  Byte.repr (Int.unsigned (Int.shr n (Int.repr 24))).
+Definition byte2 (n : int) : byte :=
+  Byte.repr (Int.unsigned (Int.shr (Int.shl n (Int.repr 8)) (Int.repr 24))).
+Definition byte3 (n : int) : byte :=
+  Byte.repr (Int.unsigned (Int.shr (Int.shl n (Int.repr 16)) (Int.repr 24))).
+Definition byte4 (n : int) : byte :=
+  Byte.repr (Int.unsigned (Int.shr (Int.shl n (Int.repr 24)) (Int.repr 24))).
 
-Definition domain_check (i : positive) (v : int) (x : RegionT) :=
-  match (PTree.get (Int32Indexed.index v) (RS x)) with
+Definition off1 (n : int) : int :=
+  n.
+Definition off2 (n : int) : int :=
+  Int.add n (Int.repr 1).
+Definition off3 (n : int) : int :=
+  Int.add n (Int.repr 2).
+Definition off4 (n : int) : int :=
+  Int.add n (Int.repr 3).
+
+Definition update_allow (rho : nodevar) (addr : int) (region : RegionInfo) :=
+  match (I32Map.get addr (RS region)) with
   | None => None
-  | Some _ => Some i
+  | Some _ => Some rho
   end.
 
-Definition domain_check2 (i : positive) (v : int) (x : RegionT) :=
-  match (PTree.get (Int32Indexed.index v) (RS x)),
-        (PTree.get (Int32Indexed.index (Int.add v (Int.repr 1))) (RS x)),
-        (PTree.get (Int32Indexed.index (Int.add v (Int.repr 2))) (RS x)),
-        (PTree.get (Int32Indexed.index (Int.add v (Int.repr 3))) (RS x)) with
-  | Some _,Some _,Some _,Some _ => Some i
+Definition update_allow2 (rho : nodevar) (addr : int) (region : RegionInfo) :=
+  match (I32Map.get (off1 addr) (RS region)),
+        (I32Map.get (off2 addr) (RS region)),
+        (I32Map.get (off3 addr) (RS region)),
+        (I32Map.get (off4 addr) (RS region)) with
+  | Some _,Some _,Some _,Some _ => Some rho
   | _,_,_,_ => None
   end.
 
-Definition updateh (l : LiveRegions) (v1 : int) (v2 : value) check :=
+Definition update_set (l : LiveRegions) (region : RegionInfo) (rho : nodevar) 
+                      (addr : int) (v : int) :=
+  PTree.set rho 
+    (mk_region (A region) (I32Map.set addr (Some (Int v)) (RS region))) l.
+
+Definition update_set2 (l : LiveRegions) (region : RegionInfo) (rho : nodevar)
+                       (addr : int) (v : int) :=
+  PTree.set rho (mk_region (A region)
+    (I32Map.set (off1 addr) (Some (Byte (byte1 v)))
+    (I32Map.set (off2 addr) (Some (Byte (byte2 v)))
+    (I32Map.set (off3 addr) (Some (Byte (byte3 v))) 
+    (I32Map.set (off4 addr) (Some (Byte (byte4 v))) (RS region)))))) l.
+
+Definition update_search (l : LiveRegions) (v1 : int) (v2 : int) check update_h :=
   match PTree.fold 
     (fun b i x =>
       match b with
       | None => check i v1 x
       | Some _ => b
-      end
-    ) l None with
+      end ) l None with
   | None => l
   | Some rho =>
       match PTree.get rho l with
       | None => l
-      | Some region => 
-          PTree.set rho (region_t (A region) 
-            (PTree.set (Int32Indexed.index v1) v2 (RS region))) l
+      | Some region => update_h l region rho v1 v2
       end
   end.
 
-Definition update (l : LiveRegions) (v1 : int) (v2 : value) :=
-  updateh l v1 v2 domain_check.
+Definition update (l : LiveRegions) (v1 : int) (v2 : int) :=
+  update_search l v1 v2 update_allow update_set.
 
-Definition update2 (l : LiveRegions) (v1 : int) (v2 : value) :=
-  updateh l v1 v2 domain_check2.
+Definition update2 (l : LiveRegions) (v1 : int) (v2 : int) :=
+  update_search l v1 v2 update_allow2 update_set2.
 
 Definition combine (b1 b2 b3 b4 : int) :=
   Int.or (Int.shl b1 (Int.repr 24)) (
@@ -128,18 +159,18 @@ Definition getvalueh (l : LiveRegions) (v : int) check :=
   | Some rho =>
       match PTree.get rho l with
       | None => Some Uninit
-      | Some region => PTree.get (Int32Indexed.index v) (RS region)
+      | Some region => I32Map.get v (RS region)
       end
   end.  
 
 Definition getvalue (l : LiveRegions) (v : int) :=
-  match (getvalueh l v domain_check) with
+  match (getvalueh l v update_allow) with
   | None => Val Uninit
   | Some v2 => Val v2
   end.
 
 Definition getvalue2 (l : LiveRegions) (v : int) :=
-  match (getvalueh l v domain_check2) with
+  match (getvalueh l v update_allow2) with
   | None => Val Uninit
   | Some v2 => Val v2
   end.
@@ -147,8 +178,8 @@ Definition getvalue2 (l : LiveRegions) (v : int) :=
 Fixpoint initialize_h (rs : RegionStore) (a : int) (m : positive) :=
   match m with
   | xH => rs
-  | xI m' => initialize_h (PTree.set (Int32Indexed.index a) Uninit rs) (Int.add a Int.one) m'
-  | xO m' => initialize_h (PTree.set (Int32Indexed.index a) Uninit rs) (Int.add a Int.one) m'
+  | xI m' => initialize_h (I32Map.set a (Some Uninit) rs) (Int.add a Int.one) m'
+  | xO m' => initialize_h (I32Map.set a (Some Uninit) rs) (Int.add a Int.one) m'
   end.
 
 Definition initialize (l : LiveRegions) (rho : nodevar) 
@@ -157,7 +188,7 @@ Definition initialize (l : LiveRegions) (rho : nodevar)
   | None => l
   | Some region => (
       match (Int.unsigned m) with
-      | Zpos m' => PTree.set rho (region_t allocator (initialize_h (RS region) a m')) l
+      | Zpos m' => PTree.set rho (mk_region allocator (initialize_h (RS region) a m')) l
       | ZO => l
       end )
   end.
@@ -166,7 +197,7 @@ Definition initialize (l : LiveRegions) (rho : nodevar)
 Reserved Notation " e '==>e' e' " (at level 40).
 Reserved Notation " s '==>s' s' " (at level 40).
 
-Inductive stmt_step : State_stmt -> State_stmt -> Prop :=
+Inductive stmt_step : (Genv.t nat nat) -> State_stmt -> trace -> State_stmt -> Prop :=
   | R1 : forall venv l s1 s2 venv' l' s1',
       state_s venv l s1 ==>s state_s venv' l' s1' ->
       state_s venv l (Seq s1 s2) ==>s state_s venv' l' (Seq s1' s2)
@@ -187,11 +218,12 @@ Inductive stmt_step : State_stmt -> State_stmt -> Prop :=
       state_e venv l e ==>e state_e venv' l' e' ->
       state_s venv l (Store (Val v) e) ==>s state_s venv' l' (Store (Val v) e')
   (* R6 changed from v1 != Uninit to v1 = Int *)
-  | R6 : forall venv l v1 v2 n,
+  | R6 : forall venv l v1 v2 n n',
       value_v v1 ->
       v1 = (Int n) ->
       value_v v2 ->
-      state_s venv l (Store (Val v2) (Val v1)) ==>s state_s venv (update l n v2) Epsilon
+      v2 = (Int n') ->
+      state_s venv l (Store (Val v2) (Val v1)) ==>s state_s venv (update l n n') Epsilon
   (* Added error transition for R6 *)
   | R6error : forall venv l v1 v2 rho,
       value_v v1 ->
@@ -211,33 +243,33 @@ Inductive stmt_step : State_stmt -> State_stmt -> Prop :=
       state_e venv l e3 ==>e state_e venv' l' e3' ->
       state_s venv l (StoreToU (Val v1) (Val v2) e3) ==>s 
       state_s venv' l' (StoreToU (Val v1) (Val v2) e3')
-  | R10 : forall venv l n rho v1 v2 region foo1 foo2 foo3,
+  | R10 : forall venv l n n' rho v1 v2 region foo1 foo2 foo3,
       value_v v1 ->
       value_v v2 ->
       v1 = Int n ->
+      v2 = Int n' ->
       PTree.get rho l = Some region /\
-      PTree.get (Int32Indexed.index (Int.add n Int.one)) (RS region) = Some foo1 /\
-      PTree.get (Int32Indexed.index (Int.add n (Int.repr 2))) (RS region) = Some foo2 /\
-      PTree.get (Int32Indexed.index (Int.add n (Int.repr 3))) (RS region) = Some foo3 ->
+      I32Map.get (Int.add n Int.one) (RS region) = Some foo1 /\
+      I32Map.get (Int.add n (Int.repr 2)) (RS region) = Some foo2 /\
+      I32Map.get (Int.add n (Int.repr 3)) (RS region) = Some foo3 ->
       state_s venv l (StoreToU (Val (Region rho)) (Val v2) (Val v1)) ==>s
-      state_s venv (update2 l n v2) Epsilon
-  | R10error : forall venv l n rho v1 v2,
+      state_s venv (update2 l n n') Epsilon
+  | R10error : forall venv l rho v1 v2,
       value_v v1 ->
       value_v v2 ->
-      v1 = Int n ->
       PTree.get rho l = None ->
       state_s venv l (StoreToU (Val (Region rho)) (Val v2) (Val v1)) ==>s
-      state_s venv (update2 l n v2) ErrorStmt
+      state_s venv l ErrorStmt
   | R10error2 : forall venv l n rho v1 v2 region,
       value_v v1 ->
       value_v v2 ->
       v1 = Int n ->
       PTree.get rho l = Some region ->
-      PTree.get (Int32Indexed.index (Int.add n Int.one)) (RS region) = None \/
-      PTree.get (Int32Indexed.index (Int.add n (Int.repr 2))) (RS region) = None \/
-      PTree.get (Int32Indexed.index (Int.add n (Int.repr 3))) (RS region) = None ->
+      I32Map.get (Int.add n Int.one) (RS region) = None \/
+      I32Map.get (Int.add n (Int.repr 2)) (RS region) = None \/
+      I32Map.get (Int.add n (Int.repr 3)) (RS region) = None ->
       state_s venv l (StoreToU (Val (Region rho)) (Val v2) (Val v1)) ==>s
-      state_s venv (update2 l n v2) ErrorStmt
+      state_s venv l ErrorStmt
   | R12 : forall venv l e1 e2 venv' l' e1',
       state_e venv l e1 ==>e state_e venv' l' e1' ->
       state_s venv l (PoolFree e1 e2) ==>s state_s venv' l' (PoolFree e1' e2)
@@ -249,20 +281,20 @@ Inductive stmt_step : State_stmt -> State_stmt -> Prop :=
   | R14 : forall venv l v n rho alloc rs,
       value_v v ->
       v = Int n ->
-      PTree.get rho l = Some (region_t alloc rs) ->
+      PTree.get rho l = Some (mk_region alloc rs) ->
       state_s venv l (PoolFree (Val (Region rho)) (Val v)) ==>s 
-      state_s venv (PTree.set rho (region_t 
+      state_s venv (PTree.set rho (mk_region
         (mk_allocator (offset alloc) ((Int.unsigned n)::(freelist alloc))) rs) l) Epsilon
   | R14error : forall venv l v rho rho' f rs,
       value_v v ->
       v = Uninit \/ v = (Region rho') ->
-      PTree.get rho l = Some (region_t f rs) ->
+      PTree.get rho l = Some (mk_region f rs) ->
       state_s venv l (PoolFree (Val (Region rho)) (Val v)) ==>s state_s venv l ErrorStmt
   | R15 : forall venv l rho tau x s,
       PTree.get rho l = None ->
       state_s venv l (PoolInit rho tau x s) ==>s 
       state_s (PTree.set x (Region rho) venv) 
-              (PTree.set rho (region_t new_allocator (PTree.empty value)) l) 
+              (PTree.set rho (mk_region new_allocator (I32Map.init None)) l) 
               (PoolPop s rho)
   | R16 : forall venv l s venv' l' s' rho,
       state_s venv l s ==>s state_s venv' l' s' ->
@@ -270,9 +302,9 @@ Inductive stmt_step : State_stmt -> State_stmt -> Prop :=
   | R17 : forall venv l rho,
       state_s venv l (PoolPop Epsilon rho) ==>s
       state_s venv (PTree.remove rho l) Epsilon
-where " s '==>s' s' " := (stmt_step s s')
+where " s '==>s' s' " := (stmt_step (Genv.empty_genv nat nat) s nil s')
 
-with stmt_exp : State_exp -> State_exp -> Prop :=
+with stmt_exp : (Genv.t nat nat) -> State_exp -> trace -> State_exp -> Prop :=
   | R18 : forall venv x v l,
       PTree.get x venv = Some v ->
       state_e venv l (Var x) ==>e state_e venv l (Val v)
@@ -313,9 +345,9 @@ with stmt_exp : State_exp -> State_exp -> Prop :=
       value_v v ->
       v = Int n ->
       PTree.get rho l = Some region ->
-      PTree.get (Int32Indexed.index (Int.add n Int.one)) (RS region) = Some foo1 ->
-      PTree.get (Int32Indexed.index (Int.add n (Int.repr 2))) (RS region) = Some foo2 ->
-      PTree.get (Int32Indexed.index (Int.add n (Int.repr 3))) (RS region) = Some foo3 ->
+      I32Map.get (Int.add n Int.one) (RS region) = Some foo1 ->
+      I32Map.get (Int.add n (Int.repr 2)) (RS region) = Some foo2 ->
+      I32Map.get (Int.add n (Int.repr 3)) (RS region) = Some foo3 ->
       state_e venv l (LoadFromU (Val (Region rho)) (Val v)) ==>e
       state_e venv l (getvalue2 l n)
   | R26error : forall venv l rho v,
@@ -327,9 +359,9 @@ with stmt_exp : State_exp -> State_exp -> Prop :=
       value_v v ->
       v = Int n ->
       PTree.get rho l = Some region ->
-      PTree.get (Int32Indexed.index (Int.add n Int.one)) (RS region) = None \/
-      PTree.get (Int32Indexed.index (Int.add n (Int.repr 2))) (RS region) = None \/
-      PTree.get (Int32Indexed.index (Int.add n (Int.repr 3))) (RS region) = None ->
+      I32Map.get (Int.add n Int.one) (RS region) = None \/
+      I32Map.get (Int.add n (Int.repr 2)) (RS region) = None \/
+      I32Map.get (Int.add n (Int.repr 3)) (RS region) = None ->
       state_e venv l (LoadFromU (Val (Region rho)) (Val v)) ==>e
       state_e venv l ErrorExp
   | R28 : forall venv l e tau,
@@ -345,7 +377,7 @@ with stmt_exp : State_exp -> State_exp -> Prop :=
       value_v v ->
       v = Int n ->
       PTree.get rho l = Some region ->
-      PTree.get (Int32Indexed.index n) (RS region) = Some foo ->
+      I32Map.get n (RS region) = Some foo ->
       state_e venv l (CastI2Ptr (Val (Region rho)) (Val v) tau) ==>e state_e venv l (Val v)
   | R31error : forall venv l rho v tau,
       value_v v ->
@@ -355,7 +387,7 @@ with stmt_exp : State_exp -> State_exp -> Prop :=
       value_v v ->
       v = Int n ->
       PTree.get rho l = Some region ->
-      PTree.get (Int32Indexed.index n) (RS region) = None ->
+      I32Map.get n (RS region) = None ->
       state_e venv l (CastI2Ptr (Val (Region rho)) (Val v) tau) ==>e state_e venv l ErrorExp
   | R32 : forall venv l e1 e2 venv' l' e1',
       state_e venv l e1 ==>e state_e venv l' e1' ->
@@ -373,5 +405,4 @@ with stmt_exp : State_exp -> State_exp -> Prop :=
       state_e venv l (PoolAlloc (Val (Region rho)) (Val v)) ==>e
       state_e venv (initialize l rho a n allocator) (Val (Int a))
   (* Taking out addr for now ... *)
-where " e '==>e' e' " := (stmt_exp e e').
-
+where " e '==>e' e' " := (stmt_exp (Genv.empty_genv nat nat) e nil e').
