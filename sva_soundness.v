@@ -57,7 +57,6 @@ Inductive crazyshit : tipe -> VarEnv -> LiveRegions -> sva_heap -> value -> Prop
   | Unknown_wf : forall venv l b h,
       crazyshit Unknown_t venv l h (Byte b).
 
-(* Skipping invariant 5 and 6 ... *)
 Inductive wf_env : context -> VarEnv -> LiveRegions -> sva_heap -> Prop :=
   | blah : forall Gamma Delta venv l h,
       ( forall x tau v,
@@ -122,14 +121,91 @@ Lemma TrivWTF2 : forall venv l e h venv' l' e' h',
   inversion H. reflexivity.
 Qed.
 
-Check star_ind.
-Check step_exp.
+Lemma MoreTrivWtf : forall venv l e h venv' l' e' h' t,
+  step_exp tt (state_e venv l e h) t (state_e venv' l' e' h') ->
+  t = E0.
+Proof.
+  intros. inversion H; simpl; reflexivity.
+Qed.
+
+Lemma MoreTrivWtf2 : forall s1 s2 t,
+  star step_exp tt s1 t s2 ->
+  t = E0.
+Proof.
+  intros. induction H. reflexivity.
+  subst. inversion H; simpl; reflexivity.
+Qed.
+
+(*
 Lemma R2star : forall s venv l e h s' venv' l' e' h' x,
-  s = state_e venv l e h ->
-  s' = state_e venv' l' e' h' ->
+  s = (state_e venv l e h) ->
+  s' = (state_e venv' l' e' h') ->
   star step_exp tt s E0 s' ->
   star step_stmt tt (state_s venv l (Assign x e) h) E0 (state_s venv' l' (Assign x e') h').
 Proof.
   intros. induction H1. subst. inversion H0. subst. constructor. 
-  subst. 
+  subst. destruct s2 as (venv'', l'', e'', h''). 
+    assert (t1 = E0).
+      apply MoreTrivWtf in H1. assumption.
+  subst. assert (t2 = E0). apply MoreTrivWtf2 in H2. assumption. subst.
+  simpl. apply IHstar. 
+
+
+  apply R2 with venv l e x venv'' l'' e'' h h'' in H1. assumption.
+  simpl. apply IHstar.
+
+ inversion H2. subst. apply MoreTrivWtf in H1. subst. 
+  subst. simpl. apply star_refl with E0 (state_s venv l (Assign x e) h) E0. 
+  (*
+  generalize (MoreTrivWtf _ _ _ _ _ _ _ _ _ H1).
+  repeat match goal with
+    [ H: step_exp _ _ ?tr _ _ |- _ ] => generalize (MoreTrivWtf  H) ; intro K ; rewrite K in * 
+  *)
+  apply IHstar.
+Qed.
+*)
+
+Theorem thm1 : forall Gamma Delta e tau venv l h,
+  has_type_exp (Gamma,Delta) e tau ->
+  wf_env (Gamma,Delta) venv l h ->
+  ( exists venv', exists l', exists h',
+    star step_exp tt (state_e venv l e h) E0 (state_e venv' l' ErrorExp h')) \/
+  ( exists v, exists venv', exists l', exists h', 
+    star step_exp tt (state_e venv l e h) E0 (state_e venv' l' (Val v) h') /\
+    value_v v /\    
+    wf_env (Gamma,Delta) venv' l' h' /\
+    crazyshit tau venv' l' h' v).
+Proof.
+  intros. exp_cases (induction H) Case.
+  Case "SS0".
+    inversion H0. subst. right. evar (v : value). exists v.
+    exists venv. exists l. exists h. specialize H4 with x tau v. inversion H4. 
+    apply H2 in H1. 
+    split. apply star_step with E0 (state_e venv l (Val v) h) E0.
+    constructor. assumption. constructor. simpl. reflexivity.
+    split. destruct v; constructor. 
+    split. assumption. specialize H6 with x tau v. apply H6 in H1. assumption.
+    constructor. assumption. apply H3 in H1. assumption.
+  Case "SS1".
+    inversion H0. right. evar (v : value). exists v. exists venv. exists l. exists h. 
+    split. instantiate (1 := (Int n)) in (Value of v). constructor. 
+    split. destruct v; constructor.
+    split. constructor; assumption.
+    constructor.
+  Case "SS2".
+    admit.
+  Case "SS3".
+    admit.
+  Case "SS4".
+    admit.
+  Case "SS5".
+    admit.
+  Case "SS6".
+    admit.
+  Case "SS7".
+    admit.
+  Case "SS8".
+    admit.
+  Case "SS10".
+    admit.
 Qed.
