@@ -8,6 +8,7 @@ Require Import AST.
 Require Import Smallstep.
 Require Import Globalenvs.
 Require Import Events.
+Require Import Tactics.
 
 (* SF imports *)
 Require Import SfLib.
@@ -136,34 +137,21 @@ Proof.
   subst. inversion H; simpl; reflexivity.
 Qed.
 
-(*
-Lemma R2star : forall s venv l e h s' venv' l' e' h' x,
+(* Another ugly proof that we need to Adam "Crush" Chlipala the shit out of *)
+Lemma R2star : forall s s',
+  star step_exp tt s E0 s' ->
+  forall venv l e h venv' l' e' h' x,
   s = (state_e venv l e h) ->
   s' = (state_e venv' l' e' h') ->
-  star step_exp tt s E0 s' ->
   star step_stmt tt (state_s venv l (Assign x e) h) E0 (state_s venv' l' (Assign x e') h').
 Proof.
-  intros. induction H1. subst. inversion H0. subst. constructor. 
-  subst. destruct s2 as (venv'', l'', e'', h''). 
-    assert (t1 = E0).
-      apply MoreTrivWtf in H1. assumption.
-  subst. assert (t2 = E0). apply MoreTrivWtf2 in H2. assumption. subst.
-  simpl. apply IHstar. 
-
-
-  apply R2 with venv l e x venv'' l'' e'' h h'' in H1. assumption.
-  simpl. apply IHstar.
-
- inversion H2. subst. apply MoreTrivWtf in H1. subst. 
-  subst. simpl. apply star_refl with E0 (state_s venv l (Assign x e) h) E0. 
-  (*
-  generalize (MoreTrivWtf _ _ _ _ _ _ _ _ _ H1).
-  repeat match goal with
-    [ H: step_exp _ _ ?tr _ _ |- _ ] => generalize (MoreTrivWtf  H) ; intro K ; rewrite K in * 
-  *)
-  apply IHstar.
+  intros s s' H. induction H. intros. subst. inversion H0. subst. constructor. 
+  intros. subst. destruct s2 as (venv'', l'', e'', h''). 
+  assert (t1 = E0). apply MoreTrivWtf in H. assumption. subst.
+  assert (t2 = E0). apply MoreTrivWtf2 in H0. assumption. subst.
+  simpl. apply star_step with E0 (state_s venv'' l'' (Assign x e'') h'') E0.
+  apply R2. assumption. apply IHstar. reflexivity. reflexivity. simpl. reflexivity.
 Qed.
-*)
 
 Theorem thm1 : forall Gamma Delta e tau venv l h,
   has_type_exp (Gamma,Delta) e tau ->
@@ -193,7 +181,15 @@ Proof.
     split. constructor; assumption.
     constructor.
   Case "SS2".
-    admit.
+    remember H0. clear Heqw. apply IHhas_type_exp1 in w. apply IHhas_type_exp2 in H0.
+    clear IHhas_type_exp1. clear IHhas_type_exp2. rename H0 into IHhas_type_exp2.
+    rename w into IHhas_type_exp1. 
+    inversion IHhas_type_exp1.
+    SCase "Error".
+      left. inversion H0; clear H0. inversion H2; clear H2. inversion H0; clear H0.
+      admit.
+    SCase "Progress".
+      admit.
   Case "SS3".
     admit.
   Case "SS4".
