@@ -187,6 +187,11 @@ Proof.
     inversion IHhas_type_exp1.
     SCase "Error".
       left. inversion H0; clear H0. inversion H2; clear H2. inversion H0; clear H0.
+      exists x. exists x0. exists x1. 
+
+      (* Need to have one rule that says if we're in the error state, then any
+         expression that uses that subexpression also translates to the error state. *)
+
       admit.
     SCase "Progress".
       admit.
